@@ -7,8 +7,7 @@ all: $(EXEC)
 
 $(EXEC): $(SRCS)
 	$(CC) $(CFLAGS) $(SRCS) -lpcap -o $(EXEC)
-run: 
-	sudo ./ipk-sniffer -i eth0 -n 15
+
 clean:
 	rm -f $(EXEC)
 
