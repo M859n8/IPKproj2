@@ -3,6 +3,7 @@
 #include "Arguments.cpp" 
 #include <iomanip>
 #include <sstream>
+#include <csignal>
 #include <ctime>
 #include <netdb.h>				
 #include <arpa/inet.h>
@@ -39,10 +40,43 @@ void printBytes(const u_char *payload, int payload_length) {
         printf("\n");
     }
 }
+void print_MAC(struct ether_header *ether_head, bool dst){
+    std::stringstream str;
+    //налаштовуємо його на шістнадцятковий вивід та заповнюємо ведучі нулі 
+    str << std::hex << std::setfill('0');
+    //Ми проходимо по кожному байту MAC-адреси ether_shost, конвертуючи його до шістнадцяткового числа, і додаємо його до std::stringstream
+    for (int i = 0; i < ETH_ALEN; ++i) {
+        if(dst){
+//ми використовуємо static_cast, щоб перетворити значення байту MAC-адреси на ціле число типу int.
+//Це необхідно, оскільки std::setw() очікує, що ви передаєте ціле число. Байт має тип unsigned char, але std::setw() очікує тип int.
+            str << std::setw(2) << static_cast<int>(ether_head->ether_dhost[i]);
+        }else{
+            str << std::setw(2) << static_cast<int>(ether_head->ether_shost[i]);
+        }
+        // Після цього ми додаємо роздільник ":" між кожним байтом, за винятком останнього.
+        if (i < ETH_ALEN - 1) {
+            str << ":";
+        }
+    }
+    if(dst){
+        std::cout << "dst MAC: " << str.str() << std::endl;
+    }else{
+        std::cout << "src MAC: " << str.str() << std::endl;
+    }   
+}
 
 
 
-int i = 0;
+pcap_t *handle;
+
+void sigintHandler(int /*signal*/) {
+    if (handle != NULL) {
+        pcap_close(handle);
+    }
+    exit(0);
+}
+
+
 void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_char *packet) {
     // Обробка мережевого пакета
     // Вивід даних пакета, відповідно до вашого формату
@@ -65,16 +99,14 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
     int packetLength = pkthdr->len;
     std::cout << "frame length: " << packetLength << " bytes" << std::endl;
 
-    i++;
-    //std::cout << "  i: "<< i<< std::endl;
     // Отримання типу пакета
     // Припустимо, що ми аналізуємо Ethernet та IPv4/IPv6 заголовки
     // Перевіряємо значення типу Ethernet рамки та значення протоколу IPv4/IPv6 заголовка
     struct ether_header *ether_head = (struct ether_header *) packet;
     int etherType = ntohs(ether_head->ether_type);
 
-    std::cout << "src MAC: " << ether_ntoa((const struct ether_addr *)&ether_head->ether_shost) << std::endl;
-    std::cout << "dst MAC: " << ether_ntoa((const struct ether_addr *)&ether_head->ether_dhost) << std::endl;
+    print_MAC(ether_head, false);
+    print_MAC(ether_head, true);
 ;
     if (etherType == 0x86DD) { // IPv6
         struct ip6_hdr *ip6_head = (struct ip6_hdr *) (packet + sizeof(struct ether_header));
@@ -83,13 +115,13 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
         char dst[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &(ip6_head->ip6_src), src, INET6_ADDRSTRLEN);
         inet_ntop(AF_INET6, &(ip6_head->ip6_dst), dst, INET6_ADDRSTRLEN);
-        std::cout << "IPv6 Source: " << src << std::endl;
-        std::cout << "IPv6 Destination: " << dst << std::endl;
+        std::cout << "src IP: " << src << std::endl;
+        std::cout << "dst IP: " << dst << std::endl;
 
         switch (ip6_head->ip6_ctlun.ip6_un1.ip6_un1_nxt) {
             case IPPROTO_TCP:
             {
-                std::cout << "Packet Type: TCP" << std::endl;
+                //std::cout << "Packet Type: TCP" << std::endl;
                 struct tcphdr *header;
                 header = (struct tcphdr *)(packet + sizeof(struct ether_header) + ip6_head->ip6_ctlun.ip6_un1.ip6_un1_nxt);
 
@@ -100,7 +132,7 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
             }
             case IPPROTO_UDP:
             {
-                std::cout << "Packet Type: UDP" << std::endl;
+                //std::cout << "Packet Type: UDP" << std::endl;
                 struct udphdr *header;
                 header = (struct udphdr *)(packet + sizeof(struct ether_header) + ip6_head->ip6_ctlun.ip6_un1.ip6_un1_nxt);
 
@@ -112,17 +144,20 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
             case IPPROTO_ICMPV6:
                 // Додаткова перевірка для розрізнення між ICMPv6 та NDP
                 // Перевіряємо, чи пакет є ICMPv6
-                if (packet[54] == 128) { // ICMPv6 
+                // if (packet[54] == 128) { // ICMPv6 
+                //     printBytes(packet, packetLength);
+                //     //std::cout << "6 Packet Type: ICMPv6" << std::endl;
+                // }else if (packet[54] == 130) { //  MLD 
+                //     printBytes(packet, packetLength);
+                //     //std::cout << "6 Packet Type: MLD" << std::endl;
+                // // Перевіряємо, чи пакет є NDP
+                // }else if (packet[54] == 135) { // NDP 
+                //     printBytes(packet, packetLength);
+                //     //std::cout << "6 Packet Type: NDP" << std::endl;
+                // }else{
                     printBytes(packet, packetLength);
-                    std::cout << "6 Packet Type: ICMPv6" << std::endl;
-                }else if (packet[54] == 130) { //  MLD 
-                    printBytes(packet, packetLength);
-                    std::cout << "6 Packet Type: MLD" << std::endl;
-                // Перевіряємо, чи пакет є NDP
-                }else if (packet[54] == 135) { // NDP 
-                    printBytes(packet, packetLength);
-                    std::cout << "6 Packet Type: NDP" << std::endl;
-                }
+
+                // }
                 break;
             default: 
                 // std::cout << "Packet Type: IPv6 (non-ICMP/IGMP/TCP/UDP)" << std::endl;
@@ -137,21 +172,21 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
         char dst[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(ip_head->ip_src), src, INET_ADDRSTRLEN);
         inet_ntop(AF_INET, &(ip_head->ip_dst), dst, INET_ADDRSTRLEN);
-        std::cout << "IP Source: " << src << std::endl;
-        std::cout << "IP Destination: " << dst << std::endl;
+        std::cout << "src IP: " << src << std::endl;
+        std::cout << "dst IP: " << dst << std::endl;
 
         switch (ip_head->ip_p) {
             case IPPROTO_ICMP:
-                std::cout << "4 Packet Type: ICMPv4" << std::endl;
+                //std::cout << "4 Packet Type: ICMPv4" << std::endl;
                 printBytes(packet, packetLength);
                 break;
             case IPPROTO_IGMP:
                 printBytes(packet, packetLength);
-                std::cout << "4 Packet Type: IGMP" << std::endl;
+                //std::cout << "4 Packet Type: IGMP" << std::endl;
                 break;
             case IPPROTO_TCP:
             {
-                std::cout << "4 Packet Type: TCP" << std::endl;
+                //std::cout << "4 Packet Type: TCP" << std::endl;
                 // Отримання TCP-заголовка
                 struct tcphdr *header;
                 header = (struct tcphdr *)(packet + sizeof(struct ether_header) + ip_head->ip_hl * 4);
@@ -162,7 +197,7 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
             }
             case IPPROTO_UDP:
             {
-                std::cout << "4 Packet Type: UDP" << std::endl;
+                //std::cout << "4 Packet Type: UDP" << std::endl;
 
                 struct udphdr *header;
                 header = (struct udphdr *)(packet + sizeof(struct ether_header) + ip_head->ip_hl * 4);
@@ -177,34 +212,53 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
                 break;
         }
     }else if (etherType == ETHERTYPE_ARP) { //arp
-    // }else if (etherType == 1) { 
-        std::cout << "Packet Type: ARP" << std::endl;
+    //  }else if (etherType == 1) { 
+        //std::cout << "Packet Type: ARP" << std::endl;
         printBytes(packet, packetLength);
         
     } else {
-        std::cout <<  "Packet Type: Unknown "<< std::endl;
+        fprintf(stderr, "Error packet type.\n");
         // std::cout << std::hex << "EtherType: 0x" << etherType << std::endl;
     }
 }
 
 int main(int argc, char *argv[]) {
+    std::string filter_exp; // Фільтр для захоплення пакетів TCP
     // Створення об'єкту класу Arguments, що автоматично парсить аргументи командного рядка
-    Arguments args(argc, argv);
+    Arguments args(argc, argv, filter_exp);
     char errBuffer[1024];
-
+    struct bpf_program fp;
+    //bpf_u_int32 net;
+    // Встановлюємо обробник сигналу для SIGINT (Ctrl+C)
+    signal(SIGINT, sigintHandler);
+    //printf("2Filter expression: %s\n", filter_exp.c_str());
     // Відкриття мережевого пристрою для захоплення пакетів
     pcap_t *handle = pcap_open_live(args.interface.c_str(), BUFSIZ, 1, 1000, errBuffer); 
 
     if (handle == NULL) {
-        std::cerr << "Error pcap open " << errBuffer << std::endl;
+        fprintf(stderr, "Error pcap open.\n");
         return 1;
     }
-    // pcap_t *handle = pcap_open_offline("captured.pcap", errBuffer);
-    // if (handle == NULL) {
-    //     std::cerr << "Не вдалося відкрити файл для захоплення: " << errBuffer << std::endl;
-    //     return 1;
-    // }
+    // Встановлюємо обробник сигналу для SIGINT (Ctrl+C)
+    signal(SIGINT, sigintHandler);
+    if (pcap_datalink(handle) != DLT_EN10MB) {
+        std::cerr << "Error Interface do not support Ethernet." << std::endl;
+        return 1;
+    }
 
+    // Компіляція фільтра
+    if (pcap_compile(handle, &fp, filter_exp.c_str(), 0, PCAP_NETMASK_UNKNOWN) == -1) {
+        fprintf(stderr, "Error parse filter.\n");
+        return 1;
+    }
+
+    // Встановлення скомпільованого фільтра
+    if (pcap_setfilter(handle, &fp) == -1) {
+        fprintf(stderr, "Error install filter.\n");
+        return 1;
+    }
+    // Встановлюємо обробник сигналу для SIGINT (Ctrl+C)
+    signal(SIGINT, sigintHandler);
     // Захоплення та обробка мережевих пакетів
     pcap_loop(handle, args.num_packets, packetHandler, NULL);
 
