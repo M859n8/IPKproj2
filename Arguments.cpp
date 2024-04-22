@@ -3,6 +3,8 @@
 #include <string>
 #include <getopt.h>
 #include <pcap.h> 
+
+//class for processing arguments
 class Arguments {
 private:
     int source_p; 
@@ -12,28 +14,31 @@ private:
 public:
     std::string interface;
     int num_packets = 1;
-    // Конструктор класу, який приймає аргументи командного рядка
+    //constructor of a class that accepts command line arguments
     Arguments(int argc, char *argv[], std::string &filter) {
+        //print interfaces if there is no arguments
         if(argc == 1){
             printInterfaces();
             exit(0);
-
         }
+        //initialise helping variables
         filter = "";
         bool tcp = false;
         bool udp = false;
         bool p = false;
         bool d_port = false;
         bool s_port = false;
+        //go through the arguments
         for (int i = optind; i < argc; i++) {
             if (std::string(argv[i]) == "-i" || std::string(argv[i]) == "--interface") {
-
+                //if interface not se and there is no other arguments
                 int check = i+1;
                 if(check == argc){
                     //output interfaces
                     printInterfaces();
                     exit(0);
                 }
+                //get the interface
                 std::string str = argv[i+1];
                 if (str.find('-') == std::string::npos) {
                     interface = argv[i+1];
@@ -41,43 +46,28 @@ public:
                 }
 
             } else if (std::string(argv[i]) == "-t" || std::string(argv[i]) == "--tcp") {
-                // if (!filter.empty()) {
-                //     filter += " or ";
-                // }
-                // filter += "tcp";
+                //filter string will be update later
                 tcp = true;
             } else if (std::string(argv[i]) == "-u" || std::string(argv[i]) == "--udp") {
-                // if (!filter.empty()) {
-                //     filter += " or ";
-                // }
-                // filter += "udp";
+                //filter string will be update later
                 udp = true;
             } else if (std::string(argv[i]) == "-p" ) {
                 port = std::stoi(argv[i+1]);
+                //filter string will be update later
                 p = true; 
-                // if (!filter.empty()) {
-                //     filter += " and ";
-                // }
-                // filter += "(src port " + std::to_string(port) + " or dst port " + std::to_string(port) + ")";
                 i++;
             } else if (std::string(argv[i]) == "--port-destination") {
                 destination_p = std::stoi(argv[i+1]);
                 d_port = true;
-                // if (!filter.empty()) {
-                //     filter += " and ";
-                // }
-                // filter += "dst port " + std::to_string(destination_p);
                 i++;
             } else if (std::string(argv[i]) == "--port-source") {
                 source_p = std::stoi(argv[i+1]);
                 s_port = true;
-                // if (!filter.empty()) {
-                //     filter += " and ";
-                // }
-                // filter += "src port " + std::to_string(source_p);
                 i++;
             } else if (std::string(argv[i]) == "--icmp4") {
+                //add condition to the filter string
                 if (!filter.empty()) {
+                    //if string is not empty, add separator
                     filter += " or ";
                 }
                 filter += "icmp";
@@ -85,6 +75,7 @@ public:
                 if (!filter.empty()) {
                     filter += " or ";
                 }
+                //icmp6 (request/reply)
                 filter += "(icmp6 and (icmp6[0] == 128 or icmp6[0] == 129))";
             } else if (std::string(argv[i]) == "--arp") {
                 if (!filter.empty()) {
@@ -115,11 +106,14 @@ public:
             }
 
         }
+        //if the ports are specified, add them together with tcp/udp
         if(tcp){
             if (!filter.empty()) {
-                    filter += " or ";
+                filter += " or ";
             }
+            //add tcp
             filter += "(tcp";
+            //add ports
             if(p){
                 filter += " and (src port " + std::to_string(port) + " or dst port " + std::to_string(port) + "))";
             }else {
@@ -128,6 +122,9 @@ public:
                 }
                 if(s_port){
                     filter += " and src port " + std::to_string(source_p) + ")";
+                }else{
+                    //just close the bracket if there is no ports
+                    filter += ")";
                 }
             }
 
@@ -146,31 +143,31 @@ public:
                 }
                 if(s_port){
                     filter += " and src port " + std::to_string(source_p) + ")";
+                }else{
+                    filter += ")";
                 }
             }
 
         }
-        std::cout << " d  " << filter << std::endl;
+        
     }
 
+    //output interfaces
     void printInterfaces() {
         pcap_if_t *allInterface;
         char errbuf[1024];
 
-        // Отримання списку всіх активних мережевих інтерфейсів
+        //get a list of all active interfaces
         if (pcap_findalldevs(&allInterface, errbuf) == -1) {
-            std::cerr << "Error finding devices: " << errbuf << std::endl;
+            std::cerr << "Error finding devices." << errbuf << std::endl;
             return;
         }
-
-        // Виведення списку інтерфейсів
+        //print interfaces
         pcap_if_t *interface;
         for (interface = allInterface; interface ; interface = interface->next) {
-            std::cout << "  " << interface->name << std::endl;
-            
+            std::cout << "" << interface->name << std::endl;
         }
-
-        // Звільнення ресурсів
+        //release resources
         pcap_freealldevs(allInterface);
     }
 };
